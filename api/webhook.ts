@@ -10,14 +10,24 @@ export default async function handler(req, res) {
 
   try {
     // Verify webhook signature
+    // No fallback: a default secret in a public repo lets anyone forge webhooks.
+    const secret = process.env.GITHUB_WEBHOOK_SECRET;
+    if (!secret) {
+      console.error('GITHUB_WEBHOOK_SECRET is not set; rejecting webhook');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
     const signature = req.headers['x-hub-signature-256'];
+    if (typeof signature !== 'string') {
+      return res.status(401).json({ error: 'Missing signature' });
+    }
+
     const payload = JSON.stringify(req.body);
-    const secret = process.env.GITHUB_WEBHOOK_SECRET || 'architect_webhook_secret_2026';
-    
-    const hmac = crypto.createHmac('sha256', secret);
-    const digest = 'sha256=' + hmac.update(payload).digest('hex');
-    
-    if (signature !== digest) {
+    const digest = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
+
+    const a = Buffer.from(signature);
+    const b = Buffer.from(digest);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
       return res.status(401).json({ error: 'Invalid signature' });
     }
 
